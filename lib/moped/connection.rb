@@ -61,7 +61,7 @@ module Moped
     #
     # @since 1.0.0
     def disconnect
-      @sock.close
+      @sock.close if connected?
     rescue
     ensure
       @sock = nil

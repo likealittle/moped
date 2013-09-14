@@ -110,8 +110,7 @@ module Moped
     # @since 1.2.0
     def disconnect
       auth.clear
-      @connection.disconnect if @connection
-      @connection = nil
+      connection && connection.disconnect
     end
 
     # Is the node down?
@@ -147,7 +146,8 @@ module Moped
       retry_on_failure = true
 
       begin
-        connect unless connected?
+        checkout_connection
+        connect
         yield
       rescue Errors::PotentialReconfiguration => e
         disconnect
@@ -176,6 +176,8 @@ module Moped
         # and re-raise the exception.
         disconnect
         raise $!.extend(Errors::SocketError)
+      ensure
+        checkin_connection
       end
     ensure
       Threaded.end(:connection)
@@ -561,8 +563,10 @@ module Moped
     # Raises Moped::ConnectionError if the connection times out.
     # Raises Moped::ConnectionError if the server is unavailable.
     def connect
-      connection.connect
-      @down_at = nil
+      unless connected?
+        connection.connect
+        @down_at = nil
+      end
     end
 
     def process(operation, &callback)
@@ -638,6 +642,12 @@ module Moped
       @port = (port || 27017).to_i
       @ip_address = ::Socket.getaddrinfo(host, nil, ::Socket::AF_INET, ::Socket::SOCK_STREAM).first[3]
       @resolved_address = "#{@ip_address}:#{@port}"
+    end
+
+    def checkout_connection
+    end
+
+    def checkin_connection
     end
   end
 end
