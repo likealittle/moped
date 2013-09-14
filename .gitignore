@@ -10,3 +10,4 @@ tmp/
 .replica
 mongo.key
 TODO
+nbproject
