@@ -110,7 +110,8 @@ module Moped
     # @since 1.2.0
     def disconnect
       auth.clear
-      connection.disconnect
+      @connection.disconnect if @connection
+      @connection = nil
     end
 
     # Is the node down?
@@ -149,6 +150,7 @@ module Moped
         connect unless connected?
         yield
       rescue Errors::PotentialReconfiguration => e
+        disconnect
         if e.reconfiguring_replica_set?
           raise Errors::ReplicaSetReconfigured.new(e.command, e.details)
         end
@@ -169,7 +171,7 @@ module Moped
           down!
           raise
         end
-      rescue
+      rescue ::Exception
         # Looks like we got an unexpected error, so we'll clean up the connection
         # and re-raise the exception.
         disconnect
