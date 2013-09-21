@@ -206,7 +206,9 @@ module Moped
       if node = nodes.find(&:primary?)
         begin
           node.ensure_primary do
-            return yield node.apply_auth(auth)
+            node.with_connection do
+              return yield node.apply_auth(auth)
+            end
           end
         rescue Errors::ConnectionFailure, Errors::ReplicaSetReconfigured
           # Fall through to the code below if our connection was dropped or the
@@ -248,7 +250,9 @@ module Moped
 
       while node = available_nodes.shift
         begin
-          return yield node.apply_auth(auth)
+          node.with_connection do
+            return yield node.apply_auth(auth)
+          end
         rescue Errors::ConnectionFailure
           warning("  MOPED: Connection failed to secondary node #{node.inspect}, trying next node.")
           # That node's no good, so let's try the next one.

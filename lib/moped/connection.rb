@@ -61,7 +61,9 @@ module Moped
     #
     # @since 1.0.0
     def disconnect
-      @sock.close if connected?
+      return unless connected?
+      auth.clear
+      @sock.close
     rescue
     ensure
       @sock = nil
@@ -200,6 +202,16 @@ module Moped
     def with_connection
       connect if @sock.nil? || !@sock.alive?
       yield @sock
+    end
+
+    public
+
+    # store the auth in connection
+    def auth
+      @auth ||= {}
+    end
+    def auth=(auth)
+      @auth = auth || {}
     end
   end
 end

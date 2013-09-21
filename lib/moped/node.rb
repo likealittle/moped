@@ -146,8 +146,7 @@ module Moped
       retry_on_failure = true
 
       begin
-        checkout_connection
-        connect
+        connect unless connected?
         yield
       rescue Errors::PotentialReconfiguration => e
         disconnect
@@ -176,12 +175,16 @@ module Moped
         # and re-raise the exception.
         disconnect
         raise $!.extend(Errors::SocketError)
-      ensure
-        checkin_connection
       end
     ensure
       Threaded.end(:connection)
     end
+
+    def ensure_connected_with_connection(&block)
+      with_connection { ensure_connected_without_connection(&block) }
+    end
+    alias_method :ensure_connected_without_connection, :ensure_connected
+    alias_method :ensure_connected, :ensure_connected_with_connection
 
     # Set a flag on the node for the duration of provided block so that an
     # exception is raised if the node is no longer the primary node.
@@ -199,6 +202,19 @@ module Moped
       yield
     ensure
       Threaded.end(:ensure_primary)
+    end
+
+    def with_connection
+      return yield if Threaded.executing?(:with_connection)
+
+      begin
+        Threaded.begin(:with_connection)
+        checkout_connection
+        yield
+      ensure
+        checkin_connection
+        Threaded.end(:with_connection)
+      end
     end
 
     # Execute a get more operation on the node.
@@ -431,6 +447,12 @@ module Moped
       end
     end
 
+    def refresh_with_connection
+      with_connection { refresh_without_connection }
+    end
+    alias_method :refresh_without_connection, :refresh
+    alias_method :refresh, :refresh_with_connection
+
     # Execute a remove command for the provided selector.
     #
     # @example Remove documents.
@@ -493,7 +515,7 @@ module Moped
     private
 
     def auth
-      @auth ||= {}
+      (connection && connection.auth) || {}
     end
 
     def login(database, username, password)
@@ -537,15 +559,15 @@ module Moped
     end
 
     def initialize_copy(_)
-      @connection = nil
+      @connection_pool = nil
     end
 
     def connection
-      @connection ||= Connection.new(ip_address, port, timeout, options)
+      @connection
     end
 
     def connected?
-      connection.connected?
+      connection && connection.connected?
     end
 
     # Mark the node as down.
@@ -563,10 +585,8 @@ module Moped
     # Raises Moped::ConnectionError if the connection times out.
     # Raises Moped::ConnectionError if the server is unavailable.
     def connect
-      unless connected?
-        connection.connect
-        @down_at = nil
-      end
+      connection.connect
+      @down_at = nil
     end
 
     def process(operation, &callback)
@@ -645,9 +665,22 @@ module Moped
     end
 
     def checkout_connection
+      @connection = pool.checkout
     end
 
     def checkin_connection
+      return unless connection
+      pool.checkin
+      @connection = nil
+    end
+
+    def pool
+      unless @connection_pool
+        @connection_pool = Connection.new(ip_address, port, timeout, options)
+        def @connection_pool.checkin; end
+        def @connection_pool.checkout; self; end
+      end
+      @connection_pool
     end
   end
 end

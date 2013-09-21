@@ -185,13 +185,15 @@ describe Moped::Node, replica_set: true do
       end
 
       it "reconnects the socket" do
-        node.connection.stub(:connected?).and_return(true)
-        node.connection.instance_variable_set(:@sock, nil)
-        lambda do
-          node.ensure_connected do
-            node.command("admin", ping: 1)
-          end
-        end.should_not raise_exception
+        node.with_connection do
+          node.connection.stub(:connected?).and_return(true)
+          node.connection.instance_variable_set(:@sock, nil)
+          lambda do
+            node.ensure_connected do
+              node.command("admin", ping: 1)
+            end
+          end.should_not raise_exception
+        end
       end
     end
 
