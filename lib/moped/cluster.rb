@@ -100,6 +100,7 @@ module Moped
     def initialize(hosts, options)
       @seeds = hosts
       @nodes = hosts.map { |host| Node.new(host, options) }
+      @first_refresh = nil
       @peers = []
 
       @options = {
@@ -121,23 +122,12 @@ module Moped
     #
     # @since 1.0.0
     def nodes(opts = {})
-      current_time = Time.new
-      down_boundary = current_time - down_interval
-      refresh_boundary = current_time - refresh_interval
-
-      # Find the nodes that were down but are ready to be refreshed, or those
-      # with stale connection information.
-      needs_refresh, available = @nodes.partition do |node|
-        node.down? ? (node.down_at < down_boundary) : node.needs_refresh?(refresh_boundary)
+      unless @first_refresh
+        refresh(@nodes)
+        @first_refresh = true
       end
-
-      # Refresh those nodes.
-      available.concat refresh(needs_refresh)
-
-      # Now return all the nodes that are available and participating in the
-      # replica set.
-      available.reject do |node|
-        node.down? || !member?(node) || (!opts[:include_arbiters] && node.arbiter?)
+      @nodes.reject do |node|
+        !member?(node) || (!opts[:include_arbiters] && node.arbiter?)
       end
     end
 
@@ -186,6 +176,13 @@ module Moped
       refreshed_nodes.to_a
     end
 
+    def refresh_if_reqd(node)
+      current_time = Time.new
+      down_boundary = current_time - down_interval
+      refresh_boundary = current_time - refresh_interval
+      refresh([node]) if node.needs_refresh?(down_boundary, refresh_boundary)
+    end
+
     # Yields the replica set's primary node to the provided block. This method
     # will retry the block in case of connection errors or replica set
     # reconfiguration.
@@ -207,6 +204,7 @@ module Moped
         begin
           node.ensure_primary do
             node.with_connection do
+              refresh_if_reqd(node)
               return yield node.apply_auth(auth)
             end
           end
@@ -220,7 +218,6 @@ module Moped
         # We couldn't find a primary node, so refresh the list and try again.
         warning("  MOPED: Retrying connection to primary for replica set #{inspect}")
         sleep(retry_interval)
-        refresh
         with_primary(retries - 1, &block)
       else
         raise(
@@ -251,6 +248,7 @@ module Moped
       while node = available_nodes.shift
         begin
           node.with_connection do
+            refresh_if_reqd(node)
             return yield node.apply_auth(auth)
           end
         rescue Errors::ConnectionFailure
@@ -265,7 +263,6 @@ module Moped
         # try again.
         warning("  MOPED: Could not connect to any node in replica set #{inspect}, refreshing list.")
         sleep(retry_interval)
-        refresh
         with_secondary(retries - 1, &block)
       else
         raise(

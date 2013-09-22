@@ -151,6 +151,7 @@ describe Moped::Cluster, replica_set: true do
 
         it "connects and yields the primary node" do
           cluster.with_secondary do |node|
+            node.command "admin", ping: 1
             node.address.should eq @primary.address
           end
         end

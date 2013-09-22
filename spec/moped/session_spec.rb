@@ -163,7 +163,8 @@ describe Moped::Session do
 
     it "flags the node as down" do
       session_with_bad_node.cluster.nodes
-      nodes.last.should be_down
+      node = nodes.last
+      node.with_connection { node.should be_down }
     end
   end
 end

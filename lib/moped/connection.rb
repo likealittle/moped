@@ -11,6 +11,7 @@ module Moped
   class Connection
 
     attr_reader :host, :port, :timeout, :options
+    attr_accessor :refreshed_at, :down_at
 
     # Is the connection alive?
     #
@@ -84,6 +85,7 @@ module Moped
     def initialize(host, port, timeout, options = {})
       @sock = nil
       @request_id = 0
+      @refreshed_at = @down_at = nil
       @host, @port, @timeout, @options = host, port, timeout, options
     end
 

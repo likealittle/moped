@@ -136,8 +136,10 @@ describe Moped::Node, replica_set: true do
       end
 
       it "marks the node as down" do
-        node.ensure_connected {} rescue nil
-        node.should be_down
+        node.with_connection {
+          node.ensure_connected {} rescue nil
+          node.should be_down
+        }
       end
     end
 
@@ -255,12 +257,16 @@ describe Moped::Node, replica_set: true do
 
     context "when dns cannot resolve the address" do
 
+      before do
+        node.refresh
+      end
+
       it "flags the node as being down" do
-        node.should be_down
+        node.with_connection { node.should be_down }
       end
 
       it "sets the down_at time" do
-        node.down_at.should be_within(1).of(Time.now)
+        node.with_connection { node.send(:connection).down_at.should be_within(1).of(Time.now) }
       end
 
       context "when attempting to refresh the node" do
@@ -270,11 +276,11 @@ describe Moped::Node, replica_set: true do
         end
 
         it "keeps the node flagged as down" do
-          node.should be_down
+          node.with_connection { node.should be_down }
         end
 
         it "updates the down_at time" do
-          node.down_at.should be_within(1).of(Time.now)
+          node.with_connection { node.send(:connection).down_at.should be_within(1).of(Time.now) }
         end
       end
     end
@@ -294,7 +300,7 @@ describe Moped::Node, replica_set: true do
       end
 
       it "still sets the refresh time" do
-        expect(node.refreshed_at).to_not be_nil
+        node.with_connection { expect(node.send(:connection).refreshed_at).to_not be_nil }
       end
     end
 
@@ -360,6 +366,7 @@ describe Moped::Node, replica_set: true do
 
           it "raises a ReplicaSetReconfigured error" do
             expect {
+              Moped::Threaded.stub(:executing?).with(:with_connection).and_return(false)
               node.refresh
             }.to raise_error(Moped::Errors::ReplicaSetReconfigured)
           end

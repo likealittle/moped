@@ -6,7 +6,6 @@ module Moped
   class Node
 
     # @attribute [r] address The address of the node.
-    # @attribute [r] down_at The time the server node went down.
     # @attribute [r] ip_address The node's ip.
     # @attribute [r] peers Other peers in the replica set.
     # @attribute [r] port The connection port.
@@ -15,14 +14,12 @@ module Moped
     # @attribute [r] options Additional options for the node (ssl).
     attr_reader \
       :address,
-      :down_at,
       :ip_address,
       :peers,
       :port,
       :resolved_address,
       :timeout,
-      :options,
-      :refreshed_at
+      :options
 
     # Is this node equal to another?
     #
@@ -122,7 +119,7 @@ module Moped
     #
     # @since 1.0.0
     def down?
-      @down_at
+      connection && connection.down_at
     end
 
     # Yields the block if a connection can be established, retrying when a
@@ -262,8 +259,6 @@ module Moped
       @address = address
       @options = options
       @timeout = options[:timeout] || 5
-      @down_at = nil
-      @refreshed_at = nil
       @primary = nil
       @secondary = nil
       resolve_address
@@ -302,15 +297,20 @@ module Moped
     # Does the node need to be refreshed?
     #
     # @example Does the node require refreshing?
-    #   node.needs_refresh?(time)
+    #   node.needs_refresh?(down_boundary, refresh_boundary)
     #
-    # @param [ Time ] time The next referesh time.
+    # @param [ Time ] down_boundary The last down time admissible
+    # @param [ Time ] refresh_boundary The last refresh time admissible
     #
     # @return [ true, false] Whether the node needs to be refreshed.
     #
     # @since 1.0.0
-    def needs_refresh?(time)
-      !refreshed_at || refreshed_at < time
+    def needs_refresh?(down_boundary, refresh_boundary)
+      return false if !connection or
+        (connection.down_at && connection.down_at > down_boundary)
+
+      connection.down_at = nil
+      !connection.refreshed_at || connection.refreshed_at < refresh_boundary
     end
 
     # Execute a pipeline of commands, for example a safe mode persist.
@@ -423,7 +423,7 @@ module Moped
     def refresh
       if resolve_address
         begin
-          @refreshed_at = Time.now
+          connection.refreshed_at = Time.now
           info = command("admin", ismaster: 1)
           primary = true   if info["ismaster"]
           secondary = true if info["secondary"]
@@ -574,9 +574,7 @@ module Moped
     #
     # Returns nothing.
     def down!
-      @down_at = Time.new
-
-      disconnect
+      connection.down_at ||= Time.new
     end
 
     # Connect to the node.
@@ -585,8 +583,10 @@ module Moped
     # Raises Moped::ConnectionError if the connection times out.
     # Raises Moped::ConnectionError if the server is unavailable.
     def connect
+      if connection.down_at
+        raise Errors::ConnectionFailure, "Connection to Mongo went down at #{connection.down_at}"
+      end
       connection.connect
-      @down_at = nil
     end
 
     def process(operation, &callback)
@@ -649,7 +649,7 @@ module Moped
           if logger = Moped.logger
             logger.warn " MOPED: Could not resolve IP address for #{address}"
           end
-          @down_at = Time.new
+          down! if connection
           false
         end
       else
