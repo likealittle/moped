@@ -209,8 +209,8 @@ module Moped
         checkout_connection
         yield
       ensure
-        checkin_connection
         Threaded.end(:with_connection)
+        checkin_connection
       end
     end
 
